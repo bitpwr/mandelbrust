@@ -8,15 +8,32 @@ use sdl2::pixels::Color;
 use sdl2::rect::Point;
 
 use num::complex::Complex;
+use std::thread;
 use std::time::SystemTime;
 
 const MAX_ITER: u32 = 200;
 
+/// Transforms to/from pixels and complex numbers
+/// TODO: Use a create with affine transformations instead
 struct Transform {
     x: f64,
     y: f64,
     scale: f64,
     window_size: (u32, u32),
+}
+
+/// Information for each pixel in MandelImage
+#[derive(Clone)]
+struct MandelPixel {
+    iterations: u32,
+    color: Color,
+}
+
+/// Generated image data for the Mandelbrot set
+struct MandelImage {
+    width: u32,
+    height: u32,
+    data: Vec<MandelPixel>,
 }
 
 impl Transform {
@@ -29,7 +46,7 @@ impl Transform {
         }
     }
 
-    fn point_to_complex(&self, p: &Point) -> Complex<f64> {
+    fn _point_to_complex(&self, p: &Point) -> Complex<f64> {
         self.pos_to_complex(p.x, p.y)
     }
 
@@ -69,7 +86,43 @@ impl Transform {
     }
 }
 
-// TODO: make slice, no vec
+impl MandelPixel {
+    fn new() -> Self {
+        MandelPixel {
+            iterations: 0,
+            color: Color::RGB(200, 100, 100),
+        }
+    }
+}
+
+impl MandelImage {
+    fn new(width: u32, height: u32) -> Self {
+        MandelImage {
+            width,
+            height,
+            data: vec![MandelPixel::new(); (width * height) as usize],
+        }
+    }
+
+    // fn get(&self, x: u32, y: u32) -> &MandelPixel {
+    //     &self.data[(x + y * self.width) as usize]
+    // }
+
+    fn set_iterations(&mut self, x: u32, y: u32, iterations: u32) {
+        self.data[(x + y * self.width) as usize].iterations = iterations;
+    }
+
+    fn set_color(&mut self, x: u32, y: u32, color: Color) {
+        self.data[(x + y * self.width) as usize].color = color;
+    }
+
+    fn color(&self, x: u32, y: u32) -> Color {
+        return self.data[(x + y * self.width) as usize].color;
+    }
+}
+
+/// Returns a vector of one color for each given iteration number
+/// TODO: make slice, no vec?
 fn colors() -> Vec<Color> {
     let mut c: Vec<Color> = Vec::with_capacity(MAX_ITER as usize);
 
@@ -80,6 +133,7 @@ fn colors() -> Vec<Color> {
     c
 }
 
+/// Returns a color for a given number of iterations
 fn color(n: u32) -> Color {
     if n < (MAX_ITER - 1) {
         let ratio = n as f64 / (MAX_ITER - 1) as f64;
@@ -105,6 +159,8 @@ fn in_set(z: &Complex<f64>) -> bool {
     false
 }
 
+/// Calculates the number of iterations for a given complex number
+/// to "escape" the Mandelbrot set
 fn mandel(c: &Complex<f64>) -> u32 {
     let f = |z| z * z + c;
     let mut iter = 0;
@@ -123,26 +179,20 @@ fn mandel(c: &Complex<f64>) -> u32 {
     iter
 }
 
-fn draw(
-    transform: &Transform,
-    canvas: &mut sdl2::render::Canvas<sdl2::video::Window>,
-) -> Result<(), String> {
+fn generate_image(transform: &Transform, image: &mut MandelImage) -> Result<(), String> {
     let start = SystemTime::now();
 
-    let window_size = canvas.output_size().unwrap();
     let c = colors();
 
-    for x in 0..window_size.0 {
-        for y in 0..window_size.1 {
-            let p = Point::new(x as i32, y as i32);
-            let z = transform.point_to_complex(&p);
+    for x in 0..image.width {
+        for y in 0..image.height {
+            let z = transform.pos_to_complex(x as i32, y as i32);
             let n = mandel(&z);
-            canvas.set_draw_color(c[n as usize]);
-            canvas.draw_point(p)?;
+            image.set_iterations(x, y, n);
+            image.set_color(x, y, c[n as usize])
         }
     }
-
-    println!("Time: {:?}", start.elapsed().unwrap());
+    println!("Generated image in: {:?}", start.elapsed().unwrap());
 
     Ok(())
 }
@@ -164,15 +214,25 @@ pub fn main() -> Result<(), String> {
         .build()
         .map_err(|e| e.to_string())?;
 
-    println!("Using SDL_Renderer \"{}\"", canvas.info().name);
     let window_size = canvas.output_size()?;
+    println!("Using SDL_Renderer \"{}\"", canvas.info().name);
     println!("Windows size {:?}", window_size);
 
     let mut transform = Transform::new(window_size);
+    let mut image = MandelImage::new(window_size.0, window_size.1);
 
     canvas.set_draw_color(Color::RGB(0, 0, 0));
     canvas.clear();
     canvas.present();
+
+    let texture_creator = canvas.texture_creator();
+    let mut texture = texture_creator
+        .create_texture_target(
+            texture_creator.default_pixel_format(),
+            window_size.0,
+            window_size.1,
+        )
+        .unwrap();
 
     let mut event_pump = sdl_context.event_pump()?;
     let mut update = true;
@@ -189,14 +249,14 @@ pub fn main() -> Result<(), String> {
                     keycode: Some(Keycode::Plus),
                     ..
                 } => {
-                    transform.zoom(1.5);
+                    transform.zoom(2.0);
                     update = true;
                 }
                 Event::KeyDown {
                     keycode: Some(Keycode::Minus),
                     ..
                 } => {
-                    transform.zoom(2.0 / 3.0);
+                    transform.zoom(0.5);
                     update = true;
                 }
                 Event::KeyDown {
@@ -229,12 +289,27 @@ pub fn main() -> Result<(), String> {
         }
 
         if update {
-            draw(&transform, &mut canvas)?;
+            generate_image(&transform, &mut image)?;
+
+            // draw image to texture
+            // TODO: How to move this to a function? (lifetimes)
+            let _result = canvas.with_texture_canvas(&mut texture, |texture_canvas| {
+                for x in 0..image.width {
+                    for y in 0..image.height {
+                        let p = Point::new(x as i32, y as i32);
+                        texture_canvas.set_draw_color(image.color(x, y));
+                        texture_canvas.draw_point(p).expect("Failed to draw pixel");
+                    }
+                }
+            });
+
             update = false;
-            canvas.present();
         }
 
-        ::std::thread::sleep(std::time::Duration::from_millis(20));
+        canvas.copy(&texture, None, None)?;
+        canvas.present();
+
+        thread::sleep(std::time::Duration::from_millis(50));
     }
 
     Ok(())
@@ -248,7 +323,7 @@ mod tests {
     fn test_transforms() {
         let transform = Transform::new((200, 300));
         let p = Point::new(100, 100);
-        let z = transform.point_to_complex(&p);
+        let z = transform._point_to_complex(&p);
         assert_eq!(p, transform._complex_to_point(z));
     }
 
