@@ -11,7 +11,7 @@ use num::complex::Complex;
 use std::thread;
 use std::time::SystemTime;
 
-const MAX_ITER: u32 = 200;
+const MAX_ITER: u32 = 150;
 
 /// Transforms to/from pixels and complex numbers
 /// TODO: Use a create with affine transformations instead
@@ -104,9 +104,9 @@ impl MandelImage {
         }
     }
 
-    // fn get(&self, x: u32, y: u32) -> &MandelPixel {
-    //     &self.data[(x + y * self.width) as usize]
-    // }
+    fn get(&self, x: u32, y: u32) -> &MandelPixel {
+        &self.data[(x + y * self.width) as usize]
+    }
 
     fn set_iterations(&mut self, x: u32, y: u32, iterations: u32) {
         self.data[(x + y * self.width) as usize].iterations = iterations;
@@ -182,14 +182,14 @@ fn mandel(c: &Complex<f64>) -> u32 {
 fn generate_image(transform: &Transform, image: &mut MandelImage) -> Result<(), String> {
     let start = SystemTime::now();
 
-    let c = colors();
+    // let c = colors();
 
     for x in 0..image.width {
         for y in 0..image.height {
             let z = transform.pos_to_complex(x as i32, y as i32);
             let n = mandel(&z);
             image.set_iterations(x, y, n);
-            image.set_color(x, y, c[n as usize])
+            // image.set_color(x, y, c[n as usize])
         }
     }
     println!("Generated image in: {:?}", start.elapsed().unwrap());
@@ -236,6 +236,7 @@ pub fn main() -> Result<(), String> {
 
     let mut event_pump = sdl_context.event_pump()?;
     let mut update = true;
+    let mut use_histogram = true;
 
     'running: loop {
         for event in event_pump.poll_iter() {
@@ -266,6 +267,13 @@ pub fn main() -> Result<(), String> {
                     transform = Transform::new(window_size);
                     update = true;
                 }
+                Event::KeyDown {
+                    keycode: Some(Keycode::H),
+                    ..
+                } => {
+                    use_histogram = !use_histogram;
+                    update = true;
+                }
                 Event::MouseButtonDown {
                     x,
                     y,
@@ -291,13 +299,59 @@ pub fn main() -> Result<(), String> {
         if update {
             generate_image(&transform, &mut image)?;
 
+            // histogram equalization
+
+            // count each iteration count
+            let mut iteration_counts = [0u32; MAX_ITER as usize];
+            image
+                .data
+                .iter()
+                .for_each(|p| iteration_counts[p.iterations as usize] += 1);
+
+            let mut cumulative_distribution = [0; MAX_ITER as usize];
+
+            // TODO: use iter
+            let mut last = 0;
+            for i in 0..MAX_ITER {
+                cumulative_distribution[i as usize] = last + iteration_counts[i as usize];
+                last = cumulative_distribution[i as usize];
+            }
+
+            // calc equalized array of iterations
+            let mut adjusted = [0; MAX_ITER as usize];
+            let nominator = image.height * image.width - cumulative_distribution[0] as u32;
+            let hist = |cd: i32| {
+                ((cd - cumulative_distribution[0] as i32) as f64 / nominator as f64
+                    * (MAX_ITER - 1) as f64)
+                    .round() as i32
+            };
+
+            for i in 0..MAX_ITER {
+                adjusted[i as usize] = hist(cumulative_distribution[i as usize] as i32);
+            }
+
+            // let mut i = 0;
+            // for c in iteration_counts.iter() {
+            //     println!(
+            //         "{}, {}, {}, {}",
+            //         i, c, cumulative_distribution[i], adjusted[i]
+            //     );
+            //     i += 1;
+            // }
+
+            // select color function
+            let clr: Box<dyn Fn(u32) -> Color> = match use_histogram {
+                true => Box::new(|n| color(adjusted[n as usize] as u32)),
+                false => Box::new(|n| color(n)),
+            };
+
             // draw image to texture
             // TODO: How to move this to a function? (lifetimes)
             let _result = canvas.with_texture_canvas(&mut texture, |texture_canvas| {
                 for x in 0..image.width {
                     for y in 0..image.height {
                         let p = Point::new(x as i32, y as i32);
-                        texture_canvas.set_draw_color(image.color(x, y));
+                        texture_canvas.set_draw_color(clr(image.get(x, y).iterations));
                         texture_canvas.draw_point(p).expect("Failed to draw pixel");
                     }
                 }
