@@ -14,7 +14,6 @@ use std::time::SystemTime;
 const MAX_ITER: u32 = 150;
 
 /// Transforms to/from pixels and complex numbers
-/// TODO: Use a create with affine transformations instead
 struct Transform {
     x: f64,
     y: f64,
@@ -26,7 +25,7 @@ struct Transform {
 #[derive(Clone)]
 struct MandelPixel {
     iterations: u32,
-    color: Color,
+    iterations_equalized: u32,
 }
 
 /// Generated image data for the Mandelbrot set
@@ -90,7 +89,7 @@ impl MandelPixel {
     fn new() -> Self {
         MandelPixel {
             iterations: 0,
-            color: Color::RGB(200, 100, 100),
+            iterations_equalized: 0,
         }
     }
 }
@@ -108,34 +107,43 @@ impl MandelImage {
         &self.data[(x + y * self.width) as usize]
     }
 
-    fn set_iterations(&mut self, x: u32, y: u32, iterations: u32) {
-        self.data[(x + y * self.width) as usize].iterations = iterations;
+    fn get_mut(&mut self, x: u32, y: u32) -> &mut MandelPixel {
+        &mut self.data[(x + y * self.width) as usize]
     }
 
-    fn set_color(&mut self, x: u32, y: u32, color: Color) {
-        self.data[(x + y * self.width) as usize].color = color;
-    }
+    // fn set_iterations(&mut self, x: u32, y: u32, iterations: u32) {
+    //     self.data[(x + y * self.width) as usize].iterations = iterations;
+    // }
 
-    fn color(&self, x: u32, y: u32) -> Color {
-        return self.data[(x + y * self.width) as usize].color;
-    }
+    // fn set_iterations_equalized(&mut self, x: u32, y: u32, iterations: u32) {
+    //     self.data[(x + y * self.width) as usize].iterations_equalized = iterations;
+    // }
+
+    // fn set_color(&mut self, x: u32, y: u32, color: Color) {
+    //     self.data[(x + y * self.width) as usize].color = color;
+    // }
+
+    // fn color(&self, x: u32, y: u32) -> Color {
+    //     return self.data[(x + y * self.width) as usize].color;
+    // }
 }
 
 /// Returns a vector of one color for each given iteration number
 /// TODO: make slice, no vec?
-fn colors() -> Vec<Color> {
-    let mut c: Vec<Color> = Vec::with_capacity(MAX_ITER as usize);
+// fn colors() -> Vec<Color> {
+//     let count = MAX_ITER + 1;
+//     let mut c: Vec<Color> = Vec::with_capacity(count as usize);
 
-    for i in 0..MAX_ITER {
-        c.push(color(i as u32));
-    }
+//     for i in 0..count {
+//         c.push(color(i as u32));
+//     }
 
-    c
-}
+//     c
+// }
 
 /// Returns a color for a given number of iterations
 fn color(n: u32) -> Color {
-    if n < (MAX_ITER - 1) {
+    if n < MAX_ITER {
         let ratio = n as f64 / (MAX_ITER - 1) as f64;
         let level = (ratio * 255.0) as u8;
 
@@ -162,39 +170,97 @@ fn in_set(z: &Complex<f64>) -> bool {
 /// Calculates the number of iterations for a given complex number
 /// to "escape" the Mandelbrot set
 fn mandel(c: &Complex<f64>) -> u32 {
-    let f = |z| z * z + c;
-    let mut iter = 0;
-
     if in_set(&c) {
-        iter = MAX_ITER - 1;
+        MAX_ITER as u32
     } else {
+        let f = |z| z * z + c;
+        let mut iter = 0;
         let mut next = Complex::new(0.0, 0.0);
 
-        while next.norm() < 2.0 && iter < (MAX_ITER - 1) {
+        while next.norm() < 2.0 && iter < MAX_ITER {
             next = f(next);
             iter += 1;
         }
-    }
 
-    iter
+        iter
+    }
 }
 
 fn generate_image(transform: &Transform, image: &mut MandelImage) -> Result<(), String> {
     let start = SystemTime::now();
 
-    // let c = colors();
-
     for x in 0..image.width {
         for y in 0..image.height {
             let z = transform.pos_to_complex(x as i32, y as i32);
             let n = mandel(&z);
-            image.set_iterations(x, y, n);
-            // image.set_color(x, y, c[n as usize])
+            image.get_mut(x, y).iterations = n;
         }
     }
     println!("Generated image in: {:?}", start.elapsed().unwrap());
 
     Ok(())
+}
+
+/// histogram equalization
+fn equalize_image(image: &mut MandelImage) {
+    let start = SystemTime::now();
+
+    // count each iteration count
+    const SIZE: usize = (MAX_ITER + 1) as usize;
+    let mut iteration_counts = [0; SIZE];
+    image
+        .data
+        .iter()
+        .for_each(|p| iteration_counts[p.iterations as usize] += 1);
+
+    let mut cumulative_distribution = [0; SIZE];
+
+    // TODO: use iter
+    // skip MAX_ITER (in set) in equalization
+    let mut last = 0;
+    for i in 0..MAX_ITER {
+        cumulative_distribution[i as usize] = last + iteration_counts[i as usize];
+        last = cumulative_distribution[i as usize];
+    }
+
+    // calc equalized array of iterations
+    let sum: i32 = iteration_counts.iter().take(MAX_ITER as usize).sum();
+    let mut adjusted = [0; SIZE as usize];
+    let nominator = sum - cumulative_distribution[0];
+    let hist = |n: u32| {
+        ((cumulative_distribution[n as usize] - cumulative_distribution[0]) as f64
+            / nominator as f64
+            * (MAX_ITER - 1) as f64)
+            .round() as u32
+    };
+
+    let equalized = |n| match n {
+        MAX_ITER => MAX_ITER,
+        _ => hist(n),
+    };
+
+    for i in 0..SIZE {
+        adjusted[i] = equalized(i as u32);
+    }
+
+    // let mut i = 0;
+    // for c in iteration_counts.iter() {
+    //     println!(
+    //         "{}, {}, {}, {}",
+    //         i, c, cumulative_distribution[i], adjusted[i]
+    //     );
+    //     i += 1;
+    // }
+
+    // set adjusted iterations
+    for x in 0..image.width {
+        for y in 0..image.height {
+            let mut pix = image.get_mut(x, y);
+            pix.iterations_equalized = adjusted[pix.iterations as usize];
+        }
+    }
+
+    println!("Equalized image in: {:?}", start.elapsed().unwrap());
 }
 
 pub fn main() -> Result<(), String> {
@@ -235,7 +301,8 @@ pub fn main() -> Result<(), String> {
         .unwrap();
 
     let mut event_pump = sdl_context.event_pump()?;
-    let mut update = true;
+    let mut update_image = true;
+    let mut update_texture = true;
     let mut use_histogram = true;
 
     'running: loop {
@@ -251,28 +318,28 @@ pub fn main() -> Result<(), String> {
                     ..
                 } => {
                     transform.zoom(2.0);
-                    update = true;
+                    update_image = true;
                 }
                 Event::KeyDown {
                     keycode: Some(Keycode::Minus),
                     ..
                 } => {
                     transform.zoom(0.5);
-                    update = true;
+                    update_image = true;
                 }
                 Event::KeyDown {
                     keycode: Some(Keycode::Space),
                     ..
                 } => {
                     transform = Transform::new(window_size);
-                    update = true;
+                    update_image = true;
                 }
                 Event::KeyDown {
                     keycode: Some(Keycode::H),
                     ..
                 } => {
                     use_histogram = !use_histogram;
-                    update = true;
+                    update_texture = true;
                 }
                 Event::MouseButtonDown {
                     x,
@@ -281,7 +348,7 @@ pub fn main() -> Result<(), String> {
                     ..
                 } => {
                     transform.center_at(&transform.pos_to_complex(x, y));
-                    update = true;
+                    update_image = true;
                 }
                 Event::MouseButtonDown {
                     x,
@@ -296,68 +363,23 @@ pub fn main() -> Result<(), String> {
             }
         }
 
-        if update {
+        if update_image {
             generate_image(&transform, &mut image)?;
+            equalize_image(&mut image);
 
-            // histogram equalization
+            update_image = false;
+            update_texture = true;
+        }
 
-            // count each iteration count
-            let mut iteration_counts = [0u32; MAX_ITER as usize];
-            image
-                .data
-                .iter()
-                .for_each(|p| iteration_counts[p.iterations as usize] += 1);
-
-            let mut cumulative_distribution = [0; MAX_ITER as usize];
-
-            // TODO: use iter
-            let mut last = 0;
-            for i in 0..MAX_ITER {
-                cumulative_distribution[i as usize] = last + iteration_counts[i as usize];
-                last = cumulative_distribution[i as usize];
-            }
-
-            // calc equalized array of iterations
-            let mut adjusted = [0; MAX_ITER as usize];
-            let nominator = image.height * image.width - cumulative_distribution[0] as u32;
-            let hist = |cd: i32| {
-                ((cd - cumulative_distribution[0] as i32) as f64 / nominator as f64
-                    * (MAX_ITER - 1) as f64)
-                    .round() as i32
-            };
-
-            for i in 0..MAX_ITER {
-                adjusted[i as usize] = hist(cumulative_distribution[i as usize] as i32);
-            }
-
-            // let mut i = 0;
-            // for c in iteration_counts.iter() {
-            //     println!(
-            //         "{}, {}, {}, {}",
-            //         i, c, cumulative_distribution[i], adjusted[i]
-            //     );
-            //     i += 1;
-            // }
-
+        if update_texture {
             // select color function
-            let clr: Box<dyn Fn(u32) -> Color> = match use_histogram {
-                true => Box::new(|n| color(adjusted[n as usize] as u32)),
-                false => Box::new(|n| color(n)),
+            // TODO: use array instead of function
+            let clr: Box<dyn Fn(&MandelPixel) -> Color> = match use_histogram {
+                true => Box::new(|pix| color(pix.iterations_equalized)),
+                false => Box::new(|pix| color(pix.iterations)),
             };
-
-            // draw image to texture
-            // TODO: How to move this to a function? (lifetimes)
-            let _result = canvas.with_texture_canvas(&mut texture, |texture_canvas| {
-                for x in 0..image.width {
-                    for y in 0..image.height {
-                        let p = Point::new(x as i32, y as i32);
-                        texture_canvas.set_draw_color(clr(image.get(x, y).iterations));
-                        texture_canvas.draw_point(p).expect("Failed to draw pixel");
-                    }
-                }
-            });
-
-            update = false;
+            draw_texture(&mut canvas, &mut texture, &image, clr);
+            update_texture = false;
         }
 
         canvas.copy(&texture, None, None)?;
@@ -367,6 +389,26 @@ pub fn main() -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn draw_texture<F>(
+    canvas: &mut sdl2::render::Canvas<sdl2::video::Window>,
+    texture: &mut sdl2::render::Texture<'_>,
+    image: &MandelImage,
+    color: F
+) where F: Fn(&MandelPixel) -> Color {
+    let start = SystemTime::now();
+
+    let _result = canvas.with_texture_canvas(texture, |texture_canvas| {
+        for x in 0..image.width {
+            for y in 0..image.height {
+                let p = Point::new(x as i32, y as i32);
+                texture_canvas.set_draw_color(color(image.get(x, y)));
+                texture_canvas.draw_point(p).expect("Failed to draw pixel");
+            }
+        }
+    });
+    println!("Texture drawn in: {:?}", start.elapsed().unwrap());
 }
 
 #[cfg(test)]
