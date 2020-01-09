@@ -8,6 +8,8 @@ use sdl2::pixels::Color;
 use sdl2::rect::Point;
 
 use num::complex::Complex;
+
+use std::ops::{Deref, DerefMut};
 use std::thread;
 use std::time::SystemTime;
 
@@ -24,6 +26,7 @@ struct Transform {
 /// Information for each pixel in MandelImage
 #[derive(Clone)]
 struct MandelPixel {
+    point: Point,
     iterations: u32,
     iterations_equalized: u32,
 }
@@ -45,10 +48,11 @@ impl Transform {
         }
     }
 
-    fn _point_to_complex(&self, p: &Point) -> Complex<f64> {
+    fn point_to_complex(&self, p: &Point) -> Complex<f64> {
         self.pos_to_complex(p.x, p.y)
     }
 
+    // TODO: Remove
     fn pos_to_complex(&self, x: i32, y: i32) -> Complex<f64> {
         Complex::new(
             (x as f64 - self.x) / self.scale,
@@ -86,8 +90,9 @@ impl Transform {
 }
 
 impl MandelPixel {
-    fn new() -> Self {
+    fn new(x: i32, y: i32) -> Self {
         MandelPixel {
+            point: Point::new(x, y),
             iterations: 0,
             iterations_equalized: 0,
         }
@@ -96,36 +101,35 @@ impl MandelPixel {
 
 impl MandelImage {
     fn new(width: u32, height: u32) -> Self {
+        let start = SystemTime::now();
+        let mut pixels = Vec::with_capacity((width * height) as usize);
+        for y in 0..height {
+            for x in 0..width {
+                pixels.push(MandelPixel::new(x as i32, y as i32));
+            }
+        }
+
+        println!("Created image in: {:?}", start.elapsed().unwrap());
         MandelImage {
             width,
             height,
-            data: vec![MandelPixel::new(); (width * height) as usize],
+            data: pixels,
         }
     }
+}
 
-    fn get(&self, x: u32, y: u32) -> &MandelPixel {
-        &self.data[(x + y * self.width) as usize]
+impl Deref for MandelImage {
+    type Target = Vec<MandelPixel>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.data
     }
+}
 
-    fn get_mut(&mut self, x: u32, y: u32) -> &mut MandelPixel {
-        &mut self.data[(x + y * self.width) as usize]
+impl DerefMut for MandelImage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.data
     }
-
-    // fn set_iterations(&mut self, x: u32, y: u32, iterations: u32) {
-    //     self.data[(x + y * self.width) as usize].iterations = iterations;
-    // }
-
-    // fn set_iterations_equalized(&mut self, x: u32, y: u32, iterations: u32) {
-    //     self.data[(x + y * self.width) as usize].iterations_equalized = iterations;
-    // }
-
-    // fn set_color(&mut self, x: u32, y: u32, color: Color) {
-    //     self.data[(x + y * self.width) as usize].color = color;
-    // }
-
-    // fn color(&self, x: u32, y: u32) -> Color {
-    //     return self.data[(x + y * self.width) as usize].color;
-    // }
 }
 
 /// Returns a vector of one color for each given iteration number
@@ -186,19 +190,14 @@ fn mandel(c: &Complex<f64>) -> u32 {
     }
 }
 
-fn generate_image(transform: &Transform, image: &mut MandelImage) -> Result<(), String> {
+fn generate_image(transform: &Transform, image: &mut MandelImage) {
     let start = SystemTime::now();
 
-    for x in 0..image.width {
-        for y in 0..image.height {
-            let z = transform.pos_to_complex(x as i32, y as i32);
-            let n = mandel(&z);
-            image.get_mut(x, y).iterations = n;
-        }
-    }
-    println!("Generated image in: {:?}", start.elapsed().unwrap());
+    image
+        .iter_mut()
+        .for_each(|p| p.iterations = mandel(&transform.point_to_complex(&p.point)));
 
-    Ok(())
+    println!("Generated image in: {:?}", start.elapsed().unwrap());
 }
 
 /// histogram equalization
@@ -209,7 +208,6 @@ fn equalize_image(image: &mut MandelImage) {
     const SIZE: usize = (MAX_ITER + 1) as usize;
     let mut iteration_counts = [0; SIZE];
     image
-        .data
         .iter()
         .for_each(|p| iteration_counts[p.iterations as usize] += 1);
 
@@ -253,12 +251,9 @@ fn equalize_image(image: &mut MandelImage) {
     // }
 
     // set adjusted iterations
-    for x in 0..image.width {
-        for y in 0..image.height {
-            let mut pix = image.get_mut(x, y);
-            pix.iterations_equalized = adjusted[pix.iterations as usize];
-        }
-    }
+    image
+        .iter_mut()
+        .for_each(|p| p.iterations_equalized = adjusted[p.iterations as usize]);
 
     println!("Equalized image in: {:?}", start.elapsed().unwrap());
 }
@@ -303,7 +298,7 @@ pub fn main() -> Result<(), String> {
     let mut event_pump = sdl_context.event_pump()?;
     let mut update_image = true;
     let mut update_texture = true;
-    let mut use_histogram = true;
+    let mut use_histogram = false;
 
     'running: loop {
         for event in event_pump.poll_iter() {
@@ -364,7 +359,7 @@ pub fn main() -> Result<(), String> {
         }
 
         if update_image {
-            generate_image(&transform, &mut image)?;
+            generate_image(&transform, &mut image);
             equalize_image(&mut image);
 
             update_image = false;
@@ -395,18 +390,19 @@ fn draw_texture<F>(
     canvas: &mut sdl2::render::Canvas<sdl2::video::Window>,
     texture: &mut sdl2::render::Texture<'_>,
     image: &MandelImage,
-    color: F
-) where F: Fn(&MandelPixel) -> Color {
+    color: F,
+) where
+    F: Fn(&MandelPixel) -> Color,
+{
     let start = SystemTime::now();
 
     let _result = canvas.with_texture_canvas(texture, |texture_canvas| {
-        for x in 0..image.width {
-            for y in 0..image.height {
-                let p = Point::new(x as i32, y as i32);
-                texture_canvas.set_draw_color(color(image.get(x, y)));
-                texture_canvas.draw_point(p).expect("Failed to draw pixel");
-            }
-        }
+        image.iter().for_each(|pix| {
+            texture_canvas.set_draw_color(color(&pix));
+            texture_canvas
+                .draw_point(pix.point)
+                .expect("Failed to draw pixel");
+        });
     });
     println!("Texture drawn in: {:?}", start.elapsed().unwrap());
 }
@@ -419,7 +415,7 @@ mod tests {
     fn test_transforms() {
         let transform = Transform::new((200, 300));
         let p = Point::new(100, 100);
-        let z = transform._point_to_complex(&p);
+        let z = transform.point_to_complex(&p);
         assert_eq!(p, transform._complex_to_point(z));
     }
 
