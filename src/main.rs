@@ -38,14 +38,30 @@ struct MandelImage {
     data: Vec<MandelPixel>,
 }
 
+/// Keeps the draw settings
+struct DrawSettings {
+    run: bool,
+    update_image: bool,
+    update_texture: bool,
+    use_histogram: bool,
+}
+
 impl Transform {
     fn new(window_size: (u32, u32)) -> Self {
-        Transform {
-            scale: window_size.0 as f64 * 0.28,
-            x: window_size.0 as f64 * 0.7,
-            y: window_size.1 as f64 * 0.5,
+        let mut t = Transform {
+            scale: 1.0,
+            x: 0.0,
+            y: 0.0,
             window_size,
-        }
+        };
+        t.reset();
+        t
+    }
+
+    fn reset(&mut self) {
+        self.scale = self.window_size.0 as f64 * 0.28;
+        self.x = self.window_size.0 as f64 * 0.7;
+        self.y = self.window_size.1 as f64 * 0.5;
     }
 
     fn point_to_complex(&self, p: &Point) -> Complex<f64> {
@@ -129,6 +145,17 @@ impl Deref for MandelImage {
 impl DerefMut for MandelImage {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.data
+    }
+}
+
+impl DrawSettings {
+    fn new() -> Self {
+        DrawSettings {
+            run: true,
+            update_image: true,
+            update_texture: true,
+            use_histogram: false,
+        }
     }
 }
 
@@ -258,12 +285,12 @@ fn equalize_image(image: &mut MandelImage) {
     println!("Equalized image in: {:?}", start.elapsed().unwrap());
 }
 
-pub fn main() -> Result<(), String> {
+fn setup_sdl(width: u32, height: u32) -> Result<(sdl2::render::Canvas<sdl2::video::Window>, sdl2::EventPump), String> {
     let sdl_context = sdl2::init()?;
     let video_subsystem = sdl_context.video()?;
 
     let window = video_subsystem
-        .window("MandelbRust", 800, 600)
+        .window("MandelbRust", width, height)
         .position_centered()
         .opengl()
         .build()
@@ -275,106 +302,120 @@ pub fn main() -> Result<(), String> {
         .build()
         .map_err(|e| e.to_string())?;
 
-    let window_size = canvas.output_size()?;
-    println!("Using SDL_Renderer \"{}\"", canvas.info().name);
-    println!("Windows size {:?}", window_size);
-
-    let mut transform = Transform::new(window_size);
-    let mut image = MandelImage::new(window_size.0, window_size.1);
+    let event_pump = sdl_context.event_pump()?;
 
     canvas.set_draw_color(Color::RGB(0, 0, 0));
     canvas.clear();
     canvas.present();
 
+    println!("Using SDL_Renderer \"{}\"", canvas.info().name);
+    println!("Windows size {:?}", canvas.output_size()?);
+
+    Ok((canvas, event_pump))
+}
+
+fn poll_events(
+    event_pump: &mut sdl2::EventPump,
+    settings: &mut DrawSettings,
+    transform: &mut Transform,
+) {
+    for event in event_pump.poll_iter() {
+        match event {
+            Event::Quit { .. }
+            | Event::KeyDown {
+                keycode: Some(Keycode::Escape),
+                ..
+            } => {
+                settings.run = false;
+            }
+            Event::KeyDown {
+                keycode: Some(Keycode::Plus),
+                ..
+            } => {
+                transform.zoom(2.0);
+                settings.update_image = true;
+            }
+            Event::KeyDown {
+                keycode: Some(Keycode::Minus),
+                ..
+            } => {
+                transform.zoom(0.5);
+                settings.update_image = true;
+            }
+            Event::KeyDown {
+                keycode: Some(Keycode::Space),
+                ..
+            } => {
+                transform.reset();
+                settings.update_image = true;
+            }
+            Event::KeyDown {
+                keycode: Some(Keycode::H),
+                ..
+            } => {
+                settings.use_histogram = !settings.use_histogram;
+                settings.update_texture = true;
+            }
+            Event::MouseButtonDown {
+                x,
+                y,
+                mouse_btn: MouseButton::Left,
+                ..
+            } => {
+                transform.center_at(&transform.pos_to_complex(x, y));
+                settings.update_image = true;
+            }
+            Event::MouseButtonDown {
+                x,
+                y,
+                mouse_btn: MouseButton::Right,
+                ..
+            } => {
+                let z = transform.pos_to_complex(x, y);
+                println!("Complex: [{}, {}i], iterations: {}", z.re, z.im, mandel(&z));
+            }
+            _ => {}
+        }
+    }
+}
+
+pub fn main() -> Result<(), String> {
+    let mut image = MandelImage::new(800, 600);
+    let mut transform = Transform::new((image.width, image.height));
+    let (mut canvas, mut event_pump) = setup_sdl(image.width, image.height)?;
+
+    // TODO: how to create texture in setup_sdl()?
     let texture_creator = canvas.texture_creator();
     let mut texture = texture_creator
         .create_texture_target(
             texture_creator.default_pixel_format(),
-            window_size.0,
-            window_size.1,
-        )
-        .unwrap();
+            image.width,
+            image.height,
+        ).expect("Failed to create texture");
 
-    let mut event_pump = sdl_context.event_pump()?;
-    let mut update_image = true;
-    let mut update_texture = true;
-    let mut use_histogram = false;
+    // let mut event_pump = sdl_context.event_pump()?;
+    let mut settings = DrawSettings::new();
 
-    'running: loop {
-        for event in event_pump.poll_iter() {
-            match event {
-                Event::Quit { .. }
-                | Event::KeyDown {
-                    keycode: Some(Keycode::Escape),
-                    ..
-                } => break 'running,
-                Event::KeyDown {
-                    keycode: Some(Keycode::Plus),
-                    ..
-                } => {
-                    transform.zoom(2.0);
-                    update_image = true;
-                }
-                Event::KeyDown {
-                    keycode: Some(Keycode::Minus),
-                    ..
-                } => {
-                    transform.zoom(0.5);
-                    update_image = true;
-                }
-                Event::KeyDown {
-                    keycode: Some(Keycode::Space),
-                    ..
-                } => {
-                    transform = Transform::new(window_size);
-                    update_image = true;
-                }
-                Event::KeyDown {
-                    keycode: Some(Keycode::H),
-                    ..
-                } => {
-                    use_histogram = !use_histogram;
-                    update_texture = true;
-                }
-                Event::MouseButtonDown {
-                    x,
-                    y,
-                    mouse_btn: MouseButton::Left,
-                    ..
-                } => {
-                    transform.center_at(&transform.pos_to_complex(x, y));
-                    update_image = true;
-                }
-                Event::MouseButtonDown {
-                    x,
-                    y,
-                    mouse_btn: MouseButton::Right,
-                    ..
-                } => {
-                    let z = transform.pos_to_complex(x, y);
-                    println!("{:?} iter: {}", z, mandel(&z));
-                }
-                _ => {}
-            }
-        }
+    while settings.run {
+        poll_events(&mut event_pump, &mut settings, &mut transform);
 
-        if update_image {
+        if settings.update_image {
             generate_image(&transform, &mut image);
             equalize_image(&mut image);
 
-            update_image = false;
-            update_texture = true;
+            settings.update_image = false;
+            settings.update_texture = true;
         }
 
-        if update_texture {
+        if settings.update_texture {
             // select color function
             // TODO: use array instead of function
-            let clr: Box<dyn Fn(&MandelPixel) -> Color> = match use_histogram {
+            let clr: Box<dyn Fn(&MandelPixel) -> Color> = match settings.use_histogram {
                 true => Box::new(|pix| color(pix.iterations_equalized)),
                 false => Box::new(|pix| color(pix.iterations)),
             };
             draw_texture(&mut canvas, &mut texture, &image, clr);
-            update_texture = false;
+            settings.update_texture = false;
         }
 
         canvas.copy(&texture, None, None)?;
@@ -406,6 +447,9 @@ fn draw_texture<F>(
     });
     println!("Texture drawn in: {:?}", start.elapsed().unwrap());
 }
+
+
+
 
 #[cfg(test)]
 mod tests {
