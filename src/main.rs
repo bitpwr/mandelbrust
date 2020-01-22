@@ -1,47 +1,49 @@
 extern crate num;
 extern crate sdl2;
+
 mod mandelbrot;
+mod palette;
 mod types;
 
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::mouse::MouseButton;
 use sdl2::pixels::Color;
+use sdl2::rect::Rect;
 use sdl2::video::Window;
 
 use std::thread;
 use std::time::SystemTime;
 
-use types::DrawSettings;
+use palette::ColorScheme;
 use types::MandelImage;
 use types::MandelPixel;
 use types::Transform;
 
-/// Returns a color for a given number of iterations
-fn color(n: u32, max: u32) -> Color {
-    if n < max {
-        let ratio = n as f64 / (max - 1) as f64;
-        let level = (ratio * 255.0) as u8;
+/// Keeps the draw settings
+struct DrawSettings {
+    run: bool,
+    update_image: bool,
+    update_texture: bool,
+    use_histogram: bool,
+    show_colors: bool,
+    color_scheme: ColorScheme,
+}
 
-        Color::RGB(0, level, 0)
-    } else {
-        Color::RGB(0, 0, 0)
+impl DrawSettings {
+    fn new() -> Self {
+        DrawSettings {
+            run: true,
+            update_image: true,
+            update_texture: true,
+            use_histogram: false,
+            show_colors: false,
+            color_scheme: ColorScheme::Green,
+        }
     }
 }
 
-/// Returns a vector of one color for each given iteration number
-/// TODO: make slice, no vec?
-// fn colors() -> Vec<Color> {
-//     let count = MAX_ITER + 1;
-//     let mut c: Vec<Color> = Vec::with_capacity(count as usize);
-
-//     for i in 0..count {
-//         c.push(color(i as u32));
-//     }
-
-//     c
-// }
-
+/// Owns SDL objects
 struct Sdl {
     canvas: sdl2::render::Canvas<Window>,
     event_pump: sdl2::EventPump,
@@ -86,7 +88,7 @@ fn poll_events(
     event_pump: &mut sdl2::EventPump,
     settings: &mut DrawSettings,
     transform: &mut Transform,
-    max_iter: u32,
+    image: &mut MandelImage,
 ) {
     for event in event_pump.poll_iter() {
         match event {
@@ -125,6 +127,40 @@ fn poll_events(
                 settings.use_histogram = !settings.use_histogram;
                 settings.update_texture = true;
             }
+            Event::KeyDown {
+                keycode: Some(Keycode::C),
+                ..
+            } => {
+                settings.show_colors = !settings.show_colors;
+            }
+            Event::KeyDown {
+                keycode: Some(Keycode::Num1),
+                ..
+            } => {
+                settings.color_scheme = ColorScheme::Green;
+                settings.update_texture = true;
+            }
+            Event::KeyDown {
+                keycode: Some(Keycode::Num2),
+                ..
+            } => {
+                settings.color_scheme = ColorScheme::Rainbow;
+                settings.update_texture = true;
+            }
+            Event::KeyDown {
+                keycode: Some(Keycode::Num3),
+                ..
+            } => {
+                settings.color_scheme = ColorScheme::Redish;
+                settings.update_texture = true;
+            }
+            Event::KeyDown {
+                keycode: Some(Keycode::I),
+                ..
+            } => {
+                image.max_iterations *= 2;
+                settings.update_image = true;
+            }
             Event::MouseButtonDown {
                 x,
                 y,
@@ -145,7 +181,7 @@ fn poll_events(
                     "Complex: [{}, {}i], iterations: {}",
                     z.re,
                     z.im,
-                    mandelbrot::mandel(&z, max_iter)
+                    mandelbrot::mandel(&z, image.max_iterations)
                 );
             }
             _ => {}
@@ -158,21 +194,32 @@ pub fn main() -> Result<(), String> {
     let mut transform = Transform::new((image.width, image.height));
     let mut settings = DrawSettings::new();
     let mut sdl = setup_sdl(image.width, image.height)?;
-    let mut texture = sdl
+
+    let mut mandel_texture = sdl
         .texture_creator
         .create_texture_target(
             sdl.texture_creator.default_pixel_format(),
             image.width,
             image.height,
         )
-        .expect("Failed to create texture");
+        .expect("Failed to create mandel texture");
+    let mut color_texture = sdl
+        .texture_creator
+        .create_texture_target(
+            sdl.texture_creator.default_pixel_format(),
+            image.width,
+            image.height,
+        )
+        .expect("Failed to create color texture");
+
+    draw_color_texture(&mut sdl.canvas, &mut color_texture);
 
     while settings.run {
         poll_events(
             &mut sdl.event_pump,
             &mut settings,
             &mut transform,
-            image.max_iterations,
+            &mut image,
         );
 
         if settings.update_image {
@@ -186,15 +233,27 @@ pub fn main() -> Result<(), String> {
         if settings.update_texture {
             // select color function
             // TODO: use array instead of function
-            let clr: Box<dyn Fn(&MandelPixel) -> Color> = match settings.use_histogram {
-                true => Box::new(|pix| color(pix.iterations_equalized, image.max_iterations)),
-                false => Box::new(|pix| color(pix.iterations, image.max_iterations)),
+            let color: Box<dyn Fn(&MandelPixel) -> Color> = match settings.use_histogram {
+                true => Box::new(|pix| {
+                    palette::color(
+                        settings.color_scheme,
+                        pix.iterations_equalized,
+                        image.max_iterations,
+                    )
+                }),
+                false => Box::new(|pix| {
+                    palette::color(settings.color_scheme, pix.iterations, image.max_iterations)
+                }),
             };
-            draw_texture(&mut sdl.canvas, &mut texture, &image, clr);
+            draw_texture(&mut sdl.canvas, &mut mandel_texture, &image, color);
             settings.update_texture = false;
         }
 
-        sdl.canvas.copy(&texture, None, None)?;
+        let texture = match settings.show_colors {
+            true => &color_texture,
+            false => &mandel_texture,
+        };
+        sdl.canvas.copy(texture, None, None)?;
         sdl.canvas.present();
 
         thread::sleep(std::time::Duration::from_millis(50));
@@ -213,13 +272,43 @@ fn draw_texture<F>(
 {
     let start = SystemTime::now();
 
-    let _result = canvas.with_texture_canvas(texture, |texture_canvas| {
-        image.iter().for_each(|pix| {
-            texture_canvas.set_draw_color(color(&pix));
-            texture_canvas
-                .draw_point(pix.point)
-                .expect("Failed to draw pixel");
-        });
-    });
+    canvas
+        .with_texture_canvas(texture, |texture_canvas| {
+            image.iter().for_each(|pix| {
+                texture_canvas.set_draw_color(color(&pix));
+                texture_canvas
+                    .draw_point(pix.point)
+                    .expect("Failed to draw pixel");
+            });
+        })
+        .expect("Failed to draw texture");
     println!("Texture drawn in: {:?}", start.elapsed().unwrap());
+}
+
+fn draw_color_texture(
+    canvas: &mut sdl2::render::Canvas<sdl2::video::Window>,
+    texture: &mut sdl2::render::Texture<'_>,
+) {
+    let start = SystemTime::now();
+
+    let (width, _) = canvas.output_size().unwrap();
+    let bar_height = 100;
+    let draw_rect =
+        |can: &mut sdl2::render::Canvas<sdl2::video::Window>, x: u32, y: u32, s: ColorScheme| {
+            can.set_draw_color(palette::color(s, x, width));
+            can.draw_rect(Rect::new(x as i32, y as i32, 1, bar_height))
+                .expect("Failed to draw pixel");
+        };
+
+    canvas
+        .with_texture_canvas(texture, |mut texture_canvas| {
+            for x in 0..width {
+                draw_rect(&mut texture_canvas, x, 0, ColorScheme::Green);
+                draw_rect(&mut texture_canvas, x, bar_height, ColorScheme::Rainbow);
+                draw_rect(&mut texture_canvas, x, bar_height * 2, ColorScheme::Redish);
+            }
+        })
+        .expect("Failed to draw texture");
+
+    println!("Color texture drawn in: {:?}", start.elapsed().unwrap());
 }

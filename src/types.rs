@@ -119,7 +119,7 @@ impl MandelImage {
 }
 
 impl Deref for MandelImage {
-    type Target = Vec<MandelPixel>;
+    type Target = [MandelPixel];
 
     fn deref(&self) -> &Self::Target {
         &self.data
@@ -129,25 +129,6 @@ impl Deref for MandelImage {
 impl DerefMut for MandelImage {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.data
-    }
-}
-
-/// Keeps the draw settings
-pub struct DrawSettings {
-    pub run: bool,
-    pub update_image: bool,
-    pub update_texture: bool,
-    pub use_histogram: bool,
-}
-
-impl DrawSettings {
-    pub fn new() -> Self {
-        DrawSettings {
-            run: true,
-            update_image: true,
-            update_texture: true,
-            use_histogram: false,
-        }
     }
 }
 

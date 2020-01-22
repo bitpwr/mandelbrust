@@ -22,6 +22,8 @@ Keyboard shortcuts and mouse functions.
 * Left mouse button sets image center
 * Right mouse button prints pixel information to console
 * `Space` resets the zoom level
-* `Esc` stops the program
 * `H` toggles histogram equalization
+* `C` shows the available color schemes
+* `Num keys` selects color schemes
+* `Esc` stops the program
 

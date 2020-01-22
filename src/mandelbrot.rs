@@ -1,5 +1,5 @@
-use crate::types::Transform;
 use crate::types::MandelImage;
+use crate::types::Transform;
 
 use num::complex::Complex;
 
@@ -46,7 +46,11 @@ pub fn generate_image(transform: &Transform, image: &mut MandelImage) {
         .iter_mut()
         .for_each(|p| p.iterations = mandel(&transform.point_to_complex(&p.point), max_iter));
 
-    println!("Generated image in: {:?}", start.elapsed().unwrap());
+    println!(
+        "Generated image with max iter {} in: {:?}",
+        image.max_iterations,
+        start.elapsed().unwrap()
+    );
 }
 
 /// histogram equalization
@@ -71,18 +75,20 @@ pub fn equalize_image(image: &mut MandelImage) {
     }
 
     // calc equalized array of iterations
-    let sum: i32 = iteration_counts.iter().take(image.max_iterations as usize).sum();
+    let sum: i32 = iteration_counts
+        .iter()
+        .take(image.max_iterations as usize)
+        .sum();
     let mut adjusted = vec![0; size];
     let nominator = sum - cumulative_distribution[0];
     let hist = |n: u32| {
         if n == image.max_iterations {
             n
-        }
-        else  {
-        ((cumulative_distribution[n as usize] - cumulative_distribution[0]) as f64
-            / nominator as f64
-            * (image.max_iterations - 1) as f64)
-            .round() as u32
+        } else {
+            ((cumulative_distribution[n as usize] - cumulative_distribution[0]) as f64
+                / nominator as f64
+                * (image.max_iterations - 1) as f64)
+                .round() as u32
         }
     };
 
