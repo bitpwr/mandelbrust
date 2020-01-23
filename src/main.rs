@@ -84,82 +84,92 @@ fn setup_sdl(width: u32, height: u32) -> Result<Sdl, String> {
     })
 }
 
-fn poll_events(
-    event_pump: &mut sdl2::EventPump,
-    settings: &mut DrawSettings,
-    transform: &mut Transform,
-    image: &mut MandelImage,
-) {
+/// Defined the different user events
+enum MandelEvent {
+    Idle,
+    Quit,
+    Zoom(f64),
+    Scheme(ColorScheme),
+    Center(i32, i32),
+    ChangeIterations(f64),
+    ToggleHistogram,
+    ToggleColorschemes,
+    ShowInfo(i32, i32),
+}
+
+fn get_event(event_pump: &mut sdl2::EventPump) -> MandelEvent {
     for event in event_pump.poll_iter() {
         match event {
             Event::Quit { .. }
             | Event::KeyDown {
                 keycode: Some(Keycode::Escape),
                 ..
-            } => {
-                settings.run = false;
-            }
+            } => return MandelEvent::Quit,
             Event::KeyDown {
                 keycode: Some(Keycode::Plus),
                 ..
             } => {
-                transform.zoom(2.0);
-                settings.update_image = true;
+                return MandelEvent::Zoom(2.0);
             }
             Event::KeyDown {
                 keycode: Some(Keycode::Minus),
                 ..
             } => {
-                transform.zoom(0.5);
-                settings.update_image = true;
+                return MandelEvent::Zoom(0.5);
             }
             Event::KeyDown {
                 keycode: Some(Keycode::Space),
                 ..
             } => {
-                transform.reset();
-                settings.update_image = true;
+                return MandelEvent::Zoom(0.0);
             }
             Event::KeyDown {
                 keycode: Some(Keycode::H),
                 ..
             } => {
-                settings.use_histogram = !settings.use_histogram;
-                settings.update_texture = true;
+                return MandelEvent::ToggleHistogram;
             }
             Event::KeyDown {
                 keycode: Some(Keycode::C),
                 ..
             } => {
-                settings.show_colors = !settings.show_colors;
+                return MandelEvent::ToggleColorschemes;
+            }
+            Event::KeyDown {
+                keycode: Some(Keycode::PageUp),
+                ..
+            } => {
+                return MandelEvent::ChangeIterations(2.0);
+            }
+            Event::KeyDown {
+                keycode: Some(Keycode::PageDown),
+                ..
+            } => {
+                return MandelEvent::ChangeIterations(0.5);
             }
             Event::KeyDown {
                 keycode: Some(Keycode::Num1),
                 ..
             } => {
-                settings.color_scheme = ColorScheme::Green;
-                settings.update_texture = true;
+                return MandelEvent::Scheme(ColorScheme::Green);
             }
             Event::KeyDown {
                 keycode: Some(Keycode::Num2),
                 ..
             } => {
-                settings.color_scheme = ColorScheme::Rainbow;
-                settings.update_texture = true;
+                return MandelEvent::Scheme(ColorScheme::Rainbow);
             }
             Event::KeyDown {
                 keycode: Some(Keycode::Num3),
                 ..
             } => {
-                settings.color_scheme = ColorScheme::Redish;
-                settings.update_texture = true;
+                return MandelEvent::Scheme(ColorScheme::Redish);
             }
             Event::KeyDown {
-                keycode: Some(Keycode::I),
+                keycode: Some(Keycode::Num4),
                 ..
             } => {
-                image.max_iterations *= 2;
-                settings.update_image = true;
+                return MandelEvent::Scheme(ColorScheme::Nice);
             }
             Event::MouseButtonDown {
                 x,
@@ -167,8 +177,7 @@ fn poll_events(
                 mouse_btn: MouseButton::Left,
                 ..
             } => {
-                transform.center_at(&transform.pos_to_complex(x, y));
-                settings.update_image = true;
+                return MandelEvent::Center(x, y);
             }
             Event::MouseButtonDown {
                 x,
@@ -176,17 +185,13 @@ fn poll_events(
                 mouse_btn: MouseButton::Right,
                 ..
             } => {
-                let z = transform.pos_to_complex(x, y);
-                println!(
-                    "Complex: [{}, {}i], iterations: {}",
-                    z.re,
-                    z.im,
-                    mandelbrot::mandel(&z, image.max_iterations)
-                );
+                return MandelEvent::ShowInfo(x, y);
             }
             _ => {}
         }
     }
+
+    MandelEvent::Idle
 }
 
 pub fn main() -> Result<(), String> {
@@ -215,12 +220,48 @@ pub fn main() -> Result<(), String> {
     draw_color_texture(&mut sdl.canvas, &mut color_texture);
 
     while settings.run {
-        poll_events(
-            &mut sdl.event_pump,
-            &mut settings,
-            &mut transform,
-            &mut image,
-        );
+        let e = get_event(&mut sdl.event_pump);
+        match e {
+            MandelEvent::Quit => settings.run = false,
+            MandelEvent::Zoom(factor) => {
+                if factor > 0.0 {
+                    transform.zoom(factor);
+                } else {
+                    transform.reset();
+                    image.max_iterations = 150;
+                }
+                settings.update_image = true;
+            }
+            MandelEvent::Center(x, y) => {
+                transform.center_at(&transform.pos_to_complex(x, y));
+                settings.update_image = true;
+            }
+            MandelEvent::Scheme(scheme) => {
+                settings.color_scheme = scheme;
+                settings.update_texture = true;
+            }
+            MandelEvent::ToggleHistogram => {
+                settings.use_histogram = !settings.use_histogram;
+                settings.update_texture = true;
+            }
+            MandelEvent::ToggleColorschemes => {
+                settings.show_colors = !settings.show_colors;
+            }
+            MandelEvent::ChangeIterations(factor) => {
+                image.max_iterations = (image.max_iterations as f64 * factor).round() as u32;
+                settings.update_image = true;
+            }
+            MandelEvent::ShowInfo(x, y) => {
+                let z = transform.pos_to_complex(x, y);
+                println!(
+                    "Comples: [{}, {}i], iterations: {}",
+                    z.re,
+                    z.im,
+                    image.iterations(x, y)
+                );
+            }
+            _ => {}
+        }
 
         if settings.update_image {
             mandelbrot::generate_image(&transform, &mut image);
@@ -306,6 +347,7 @@ fn draw_color_texture(
                 draw_rect(&mut texture_canvas, x, 0, ColorScheme::Green);
                 draw_rect(&mut texture_canvas, x, bar_height, ColorScheme::Rainbow);
                 draw_rect(&mut texture_canvas, x, bar_height * 2, ColorScheme::Redish);
+                draw_rect(&mut texture_canvas, x, bar_height * 3, ColorScheme::Nice);
             }
         })
         .expect("Failed to draw texture");

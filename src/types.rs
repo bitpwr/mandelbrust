@@ -116,6 +116,10 @@ impl MandelImage {
             data: pixels,
         }
     }
+
+    pub fn iterations(&self, x: i32, y: i32) -> u32 {
+        self.data[(x + y * self.width as i32) as usize].iterations
+    }
 }
 
 impl Deref for MandelImage {

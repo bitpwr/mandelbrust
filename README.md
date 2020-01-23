@@ -18,12 +18,13 @@ cargo run --release
 
 Keyboard shortcuts and mouse functions.
 
-* Use `+` and `-` keys to zoom in and out
-* Left mouse button sets image center
+* `+` and `-` keys zooms in and out.
+* Left mouse button sets image center.
+* `PageUp` and `PageDown` changes maximum interation count.
+* `H` toggles histogram equalization.
+* `C` shows the available color schemes.
+* `Num keys` selects color schemes.
+* `Space` resets the zoom level.
 * Right mouse button prints pixel information to console
-* `Space` resets the zoom level
-* `H` toggles histogram equalization
-* `C` shows the available color schemes
-* `Num keys` selects color schemes
-* `Esc` stops the program
+* `Esc` stops the program.
 
