@@ -53,7 +53,11 @@ impl Transform {
         self.x = self.window_size.0 as f64 / 2.0 - z_center.re * self.scale;
         self.y = self.window_size.1 as f64 / 2.0 - z_center.im * self.scale;
 
-        println!("Zoom: {}", self.zoom_factor());
+        if self.zoom_factor() > 1_000_000.0 {
+            println!("Zoom: {:e}", self.zoom_factor());
+        } else {
+            println!("Zoom: {}", self.zoom_factor());
+        }
     }
 
     pub fn zoom_factor(&self) -> f64 {

@@ -157,13 +157,13 @@ fn get_event(event_pump: &mut sdl2::EventPump) -> MandelEvent {
                 keycode: Some(Keycode::Num2),
                 ..
             } => {
-                return MandelEvent::Scheme(ColorScheme::Rainbow);
+                return MandelEvent::Scheme(ColorScheme::Redish);
             }
             Event::KeyDown {
                 keycode: Some(Keycode::Num3),
                 ..
             } => {
-                return MandelEvent::Scheme(ColorScheme::Redish);
+                return MandelEvent::Scheme(ColorScheme::Rainbow);
             }
             Event::KeyDown {
                 keycode: Some(Keycode::Num4),
@@ -332,8 +332,8 @@ fn draw_color_texture(
 ) {
     let start = SystemTime::now();
 
-    let (width, _) = canvas.output_size().unwrap();
-    let bar_height = 100;
+    let (width, height) = canvas.output_size().unwrap();
+    let bar_height = height / 4;
     let draw_rect =
         |can: &mut sdl2::render::Canvas<sdl2::video::Window>, x: u32, y: u32, s: ColorScheme| {
             can.set_draw_color(palette::color(s, x, width));
@@ -345,8 +345,8 @@ fn draw_color_texture(
         .with_texture_canvas(texture, |mut texture_canvas| {
             for x in 0..width {
                 draw_rect(&mut texture_canvas, x, 0, ColorScheme::Green);
-                draw_rect(&mut texture_canvas, x, bar_height, ColorScheme::Rainbow);
-                draw_rect(&mut texture_canvas, x, bar_height * 2, ColorScheme::Redish);
+                draw_rect(&mut texture_canvas, x, bar_height, ColorScheme::Redish);
+                draw_rect(&mut texture_canvas, x, bar_height * 2, ColorScheme::Rainbow);
                 draw_rect(&mut texture_canvas, x, bar_height * 3, ColorScheme::Nice);
             }
         })

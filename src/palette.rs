@@ -61,12 +61,21 @@ fn color_nice(n: u32, max: u32) -> Color {
 
 /// colors: red - yellow
 fn color_red(n: u32, max: u32) -> Color {
-    let v = match n {
-        _ if n == max => 0.0,
-        _ => 1.0,
-    };
+    let red_limit = max / 2;
+    if n < red_limit {
+        let ratio = n as f64 / red_limit as f64;
+        let level = (ratio.sqrt() * 255.0) as u8;
 
-    hsv(60.0 * (n as f64 / max as f64), 1.0, v)
+        Color::RGB(level, 0, 0)
+    } else {
+        let v = match n {
+            _ if n == max => 0.0,
+            _ => 1.0,
+        };
+
+        let ratio = (n - red_limit) as f64 / (max - red_limit) as f64;
+        hsv(60.0 * ratio, 1.0, v)
+    }
 }
 
 /// colors: black - green - white
