@@ -3,6 +3,9 @@ use crate::types::Transform;
 
 use num::complex::Complex;
 
+use std::sync::mpsc;
+use std::sync::Arc;
+use std::thread;
 use std::time::SystemTime;
 
 /// Calculates the number of iterations for a given complex number
@@ -38,17 +41,68 @@ fn in_set(z: &Complex<f64>) -> bool {
     false
 }
 
-pub fn generate_image(transform: &Transform, image: &mut MandelImage) {
+/// single threaded image generation
+pub fn _generate_image(transform: &Transform, image: &mut MandelImage) {
     let start = SystemTime::now();
     let max_iter = image.max_iterations;
 
     image
         .iter_mut()
-        .for_each(|p| p.iterations = mandel(&transform.point_to_complex(&p.point), max_iter));
+        .for_each(|p| p.iterations = mandel(&transform.pos_to_complex(p.x, p.y), max_iter));
 
     println!(
         "Generated image with max iter {} in: {:?}",
         image.max_iterations,
+        start.elapsed().unwrap()
+    );
+}
+
+/// multithreaded image generation
+pub fn generate_image_thread(transform: &Transform, image: &mut MandelImage) {
+    let start = SystemTime::now();
+
+    let (tx, rx) = mpsc::channel();
+    let trans = Arc::new(transform.clone());
+    let width = image.width;
+    let height = image.height;
+    let max_iter = image.max_iterations;
+
+    let thread_count: i32 = 12;
+    let rows_per_thread = height as i32 / thread_count;
+    for t in 0..thread_count {
+        let rows = if t < (thread_count - 1) {
+            (rows_per_thread * t)..(rows_per_thread * (t + 1))
+        } else {
+            (rows_per_thread * t)..height as i32
+        };
+        let trans_clone = trans.clone();
+        let tx = tx.clone();
+        thread::spawn(move || {
+            let mut iterations = Vec::with_capacity((width * height) as usize);
+
+            for y in rows.clone() {
+                for x in 0..width {
+                    iterations.push(mandel(
+                        &trans_clone.pos_to_complex(x as i32, y as i32),
+                        max_iter,
+                    ));
+                }
+            }
+
+            tx.send((rows, iterations)).unwrap();
+        });
+    }
+
+    for _ in 0..thread_count {
+        let (rows, iterations) = rx.recv().unwrap();
+        println!("Got rows {:?}", rows);
+        image.set_iterations(rows, &iterations);
+    }
+
+    println!(
+        "Generated image with {} threads and max iterations {} in: {:?}",
+        thread_count,
+        max_iter,
         start.elapsed().unwrap()
     );
 }

@@ -9,7 +9,7 @@ use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::mouse::MouseButton;
 use sdl2::pixels::Color;
-use sdl2::rect::Rect;
+use sdl2::rect::{Point, Rect};
 use sdl2::video::Window;
 
 use std::thread;
@@ -195,7 +195,7 @@ fn get_event(event_pump: &mut sdl2::EventPump) -> MandelEvent {
 }
 
 pub fn main() -> Result<(), String> {
-    let mut image = MandelImage::new(800, 600, 150);
+    let mut image = MandelImage::new(1000, 800, 150);
     let mut transform = Transform::new((image.width, image.height));
     let mut settings = DrawSettings::new();
     let mut sdl = setup_sdl(image.width, image.height)?;
@@ -264,7 +264,7 @@ pub fn main() -> Result<(), String> {
         }
 
         if settings.update_image {
-            mandelbrot::generate_image(&transform, &mut image);
+            mandelbrot::generate_image_thread(&transform, &mut image);
             mandelbrot::equalize_image(&mut image);
 
             settings.update_image = false;
@@ -318,7 +318,7 @@ fn draw_texture<F>(
             image.iter().for_each(|pix| {
                 texture_canvas.set_draw_color(color(&pix));
                 texture_canvas
-                    .draw_point(pix.point)
+                    .draw_point(Point::new(pix.x, pix.y))
                     .expect("Failed to draw pixel");
             });
         })

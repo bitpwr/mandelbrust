@@ -1,11 +1,10 @@
 use num::complex::Complex;
 
-use sdl2::rect::Point;
-
 use std::ops::{Deref, DerefMut};
 use std::time::SystemTime;
 
 /// Transforms to/from pixels and complex numbers
+#[derive(Clone)]
 pub struct Transform {
     x: f64,
     y: f64,
@@ -31,11 +30,6 @@ impl Transform {
         self.y = self.window_size.1 as f64 * 0.5;
     }
 
-    pub fn point_to_complex(&self, p: &Point) -> Complex<f64> {
-        self.pos_to_complex(p.x, p.y)
-    }
-
-    // TODO: Remove
     pub fn pos_to_complex(&self, x: i32, y: i32) -> Complex<f64> {
         Complex::new(
             (x as f64 - self.x) / self.scale,
@@ -43,8 +37,8 @@ impl Transform {
         )
     }
 
-    pub fn _complex_to_point(&self, z: Complex<f64>) -> Point {
-        Point::new(
+    pub fn _complex_to_point(&self, z: Complex<f64>) -> (i32, i32) {
+        (
             (z.re * self.scale + self.x) as i32,
             (z.im * self.scale + self.y) as i32,
         )
@@ -75,7 +69,8 @@ impl Transform {
 /// Information for each pixel in MandelImage
 #[derive(Clone)]
 pub struct MandelPixel {
-    pub point: Point,
+    pub x: i32,
+    pub y: i32,
     pub iterations: u32,
     pub iterations_equalized: u32,
 }
@@ -83,7 +78,8 @@ pub struct MandelPixel {
 impl MandelPixel {
     pub fn new(x: i32, y: i32) -> Self {
         MandelPixel {
-            point: Point::new(x, y),
+            x,
+            y,
             iterations: 0,
             iterations_equalized: 0,
         }
@@ -120,6 +116,13 @@ impl MandelImage {
     pub fn iterations(&self, x: i32, y: i32) -> u32 {
         self.data[(x + y * self.width as i32) as usize].iterations
     }
+
+    pub fn set_iterations(&mut self, rows: std::ops::Range<i32>, iters: &[u32]) {
+        let start_index = (rows.start * self.width as i32) as usize;
+        for (index, i) in iters.iter().enumerate() {
+            self.data[start_index + index].iterations = *i;
+        }
+    }
 }
 
 impl Deref for MandelImage {
@@ -142,10 +145,10 @@ mod tests {
 
     #[test]
     fn test_transforms() {
-        let transform = Transform::new((200, 300));
-        let p = Point::new(100, 100);
-        let z = transform.point_to_complex(&p);
-        assert_eq!(p, transform._complex_to_point(z));
+        // let transform = Transform::new((200, 300));
+        // let p = Point::new(100, 100);
+        // let z = transform.pos_to_complex(&p);
+        // assert_eq!(p, transform._complex_to_point(z));
     }
 
     #[test]
