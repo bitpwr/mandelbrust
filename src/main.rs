@@ -163,13 +163,13 @@ fn get_event(event_pump: &mut sdl2::EventPump) -> MandelEvent {
                 keycode: Some(Keycode::Num3),
                 ..
             } => {
-                return MandelEvent::Scheme(ColorScheme::Rainbow);
+                return MandelEvent::Scheme(ColorScheme::Blue);
             }
             Event::KeyDown {
                 keycode: Some(Keycode::Num4),
                 ..
             } => {
-                return MandelEvent::Scheme(ColorScheme::Nice);
+                return MandelEvent::Scheme(ColorScheme::Rainbow);
             }
             Event::MouseButtonDown {
                 x,
@@ -346,8 +346,8 @@ fn draw_color_texture(
             for x in 0..width {
                 draw_rect(&mut texture_canvas, x, 0, ColorScheme::Green);
                 draw_rect(&mut texture_canvas, x, bar_height, ColorScheme::Redish);
-                draw_rect(&mut texture_canvas, x, bar_height * 2, ColorScheme::Rainbow);
-                draw_rect(&mut texture_canvas, x, bar_height * 3, ColorScheme::Nice);
+                draw_rect(&mut texture_canvas, x, bar_height * 2, ColorScheme::Blue);
+                draw_rect(&mut texture_canvas, x, bar_height * 3, ColorScheme::Rainbow);
             }
         })
         .expect("Failed to draw texture");

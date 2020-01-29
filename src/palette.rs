@@ -6,7 +6,7 @@ pub enum ColorScheme {
     Green,
     Rainbow,
     Redish,
-    Nice,
+    Blue,
 }
 
 /// Converts a HSV color to a SDL Color
@@ -49,14 +49,23 @@ fn color_rainbow(n: u32, max: u32) -> Color {
     hsv(300.0 * (n as f64 / max as f64), 1.0, v)
 }
 
-/// colors: nice rainbow
-fn color_nice(n: u32, max: u32) -> Color {
-    let v = match n {
-        _ if n == max => 0.0,
-        _ => 1.0,
-    };
+/// colors: blue - purple
+fn color_blue(n: u32, max: u32) -> Color {
+    let blue_limit = max / 3;
+    if n < blue_limit {
+        let ratio = n as f64 / blue_limit as f64;
+        let level = (ratio.sqrt() * 255.0) as u8;
 
-    hsv(240.0 + 240.0 * (n as f64 / max as f64), 1.0, v)
+        Color::RGB(0, 0, level)
+    } else {
+        let v = match n {
+            _ if n == max => 0.0,
+            _ => 1.0,
+        };
+
+        let ratio = (n - blue_limit) as f64 / (max - blue_limit) as f64;
+        hsv(240.0 + 60.0 * ratio, 1.0, v)
+    }
 }
 
 /// colors: red - yellow
@@ -100,7 +109,7 @@ pub fn color(color_type: ColorScheme, n: u32, max: u32) -> Color {
         ColorScheme::Green => color_green(n, max),
         ColorScheme::Rainbow => color_rainbow(n, max),
         ColorScheme::Redish => color_red(n, max),
-        ColorScheme::Nice => color_nice(n, max),
+        ColorScheme::Blue => color_blue(n, max),
     }
 }
 
