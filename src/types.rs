@@ -33,14 +33,14 @@ impl Transform {
     pub fn pos_to_complex(&self, x: i32, y: i32) -> Complex<f64> {
         Complex::new(
             (x as f64 - self.x) / self.scale,
-            (y as f64 - self.y) / self.scale,
+            ((self.window_size.1 as f64 - y as f64) - self.y) / self.scale,
         )
     }
 
     pub fn _complex_to_point(&self, z: Complex<f64>) -> (i32, i32) {
         (
             (z.re * self.scale + self.x) as i32,
-            (z.im * self.scale + self.y) as i32,
+            -(z.im * self.scale + self.y) as i32 + self.window_size.1 as i32,
         )
     }
 
@@ -149,10 +149,19 @@ mod tests {
 
     #[test]
     fn test_transforms() {
-        // let transform = Transform::new((200, 300));
-        // let p = Point::new(100, 100);
-        // let z = transform.pos_to_complex(&p);
-        // assert_eq!(p, transform._complex_to_point(z));
+        let transform = Transform::new((200, 300));
+
+        let z = transform.pos_to_complex(150, 250);
+        assert_eq!((150,250), transform._complex_to_point(z));
+
+        let z = transform.pos_to_complex(180, 380);
+        assert_eq!((180,380), transform._complex_to_point(z));
+
+        let z = transform.pos_to_complex(30, 380);
+        assert_eq!((30,380), transform._complex_to_point(z));
+
+        let z = transform.pos_to_complex(30, 11);
+        assert_eq!((30,11), transform._complex_to_point(z));
     }
 
     #[test]
